@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blocks 3D</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0e6ff;
+      color: #4a3566;
+      overflow: hidden;
+      height: 100vh;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+    }
+    canvas { display: block; }
+
+    #toolbar {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 14px;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(100, 60, 160, 0.15);
+    }
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .btn-group-label {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #a08cc0;
+      margin-bottom: 1px;
+    }
+    .btn-row {
+      display: flex;
+      gap: 5px;
+    }
+    button {
+      background: #fff;
+      color: #5a4080;
+      border: 2px solid #e0d4f0;
+      border-radius: 10px;
+      padding: 7px 13px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    button:hover {
+      background: #f3edff;
+      border-color: #c4b0e0;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(100, 60, 160, 0.15);
+    }
+    button:active {
+      transform: translateY(0);
+      background: #e8dff8;
+    }
+    button.accent {
+      background: linear-gradient(135deg, #a87cdf, #7c4dca);
+      color: #fff;
+      border-color: transparent;
+      font-size: 14px;
+    }
+    button.accent:hover {
+      background: linear-gradient(135deg, #b98de8, #8d5dd6);
+      box-shadow: 0 3px 12px rgba(124, 77, 202, 0.35);
+    }
+    button.delete-btn {
+      background: #fff0f0;
+      color: #c55;
+      border-color: #f0d0d0;
+    }
+    button.delete-btn:hover {
+      background: #ffe0e0;
+      border-color: #e0a0a0;
+    }
+
+    #info {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      font-weight: 600;
+      color: rgba(100, 70, 150, 0.5);
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      padding: 8px 16px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    #selected-info {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #7a5caa;
+      text-align: right;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      padding: 8px 14px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(100, 60, 160, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <div id="toolbar">
+    <div class="btn-group">
+      <div class="btn-group-label">Blocks</div>
+      <button id="btn-add" class="accent">+ Add Block</button>
+      <button id="btn-delete" class="delete-btn">Delete Selected</button>
+    </div>
+
+    <div class="btn-group">
+      <div class="btn-group-label">Rotate Block</div>
+      <div class="btn-row">
+        <button id="btn-rot-x" style="color:#e85d75">X 90&deg;</button>
+        <button id="btn-rot-y" style="color:#3dba7a">Y 90&deg;</button>
+        <button id="btn-rot-z" style="color:#4a9ef5">Z 90&deg;</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="selected-info">Click a block to select it</div>
+  <div id="info">Drag to orbit | Right-drag to pan | Scroll to zoom | Click to select | Arrow keys to move</div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+
+    // --- Scene setup ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf0e6ff);
+    scene.fog = new THREE.Fog(0xf0e6ff, 40, 80);
+
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
+    // Z is up
+    camera.up.set(0, 0, 1);
+    camera.position.set(12, 8, 10);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    // --- Lighting (warm, soft) ---
+    const ambientLight = new THREE.AmbientLight(0xfff5ee, 0.7);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight.position.set(10, 10, 15);
+    scene.add(dirLight);
+
+    const dirLight2 = new THREE.DirectionalLight(0xffe0d0, 0.35);
+    dirLight2.position.set(-5, -5, 5);
+    scene.add(dirLight2);
+
+    // Subtle hemisphere light for sky/ground color variation
+    const hemiLight = new THREE.HemisphereLight(0xc8e0ff, 0xffe8d6, 0.3);
+    scene.add(hemiLight);
+
+    // --- Grid helper (on XY plane) ---
+    const gridHelper = new THREE.GridHelper(20, 20, 0xc8b8e0, 0xddd0f0);
+    gridHelper.rotation.x = Math.PI / 2; // rotate from XZ to XY plane
+    scene.add(gridHelper);
+
+    // --- Custom axis lines + labels (dynamic length) ---
+    function makeAxisLine(color, from, to) {
+      const material = new THREE.LineBasicMaterial({ color });
+      const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
+      return new THREE.Line(geometry, material);
+    }
+
+    const axisLines = {
+      x: makeAxisLine(0xe85d75, new THREE.Vector3(0,0,0), new THREE.Vector3(3,0,0)),
+      y: makeAxisLine(0x3dba7a, new THREE.Vector3(0,0,0), new THREE.Vector3(0,3,0)),
+      z: makeAxisLine(0x4a9ef5, new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,3)),
+    };
+    scene.add(axisLines.x);
+    scene.add(axisLines.y);
+    scene.add(axisLines.z);
+
+    // --- State ---
+    const blocks = [];        // array of block objects
+    let selectedBlock = null;
+    let blockCounter = 0;
+
+    // Camera orbit state (Z-up spherical coordinates)
+    let cameraRadius = 16;
+    let cameraTheta = Math.PI / 4;   // horizontal angle (around Z axis)
+    let cameraPhi = Math.PI / 4;     // vertical angle (from Z+ down toward XY plane)
+    let cameraTarget = new THREE.Vector3(0, 0, 0);
+    updateCameraPosition();
+
+    // --- Block colors (bright, toy-like) ---
+    const COLORS = [
+      0xff6b8a, 0x51d4a8, 0xffd166, 0x6ec6ff,
+      0xff9a5c, 0xa78bfa, 0x5cd6d6, 0xf97694,
+      0x7dd87d, 0xffb347
+    ];
+
+    // --- Axis labels ---
+    function makeAxisLabel(text, color, position) {
+      const canvas = document.createElement('canvas');
+      const size = 128;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+
+      ctx.font = 'bold 72px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, 46, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Subtle shadow
+      ctx.shadowColor = 'rgba(0,0,0,0.15)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 2;
+
+      ctx.fillStyle = color;
+      ctx.fillText(text, size / 2, size / 2);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter;
+
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(1, 1, 1);
+      sprite.position.copy(position);
+      sprite.renderOrder = 1000;
+      return sprite;
+    }
+
+    // Place labels at the ends of the axes (will be repositioned dynamically)
+    const axisLabelX = makeAxisLabel('X', '#e85d75', new THREE.Vector3(3.5, 0, 0));
+    const axisLabelY = makeAxisLabel('Y', '#3dba7a', new THREE.Vector3(0, 3.5, 0));
+    const axisLabelZ = makeAxisLabel('Z', '#4a9ef5', new THREE.Vector3(0, 0, 3.5));
+    scene.add(axisLabelX);
+    scene.add(axisLabelY);
+    scene.add(axisLabelZ);
+
+    const MIN_AXIS_LEN = 3; // minimum axis line length
+    const AXIS_LABEL_PAD = 0.5; // gap between end of axis line and label
+
+    // Recalculate axis lengths so they extend past all blocks
+    function updateAxisExtents() {
+      let maxX = 0, maxY = 0, maxZ = 0;
+      for (const block of blocks) {
+        for (const [dx, dy, dz] of block.cells) {
+          maxX = Math.max(maxX, block.anchor[0] + dx + 1);
+          maxY = Math.max(maxY, block.anchor[1] + dy + 1);
+          maxZ = Math.max(maxZ, block.anchor[2] + dz + 1);
+        }
+      }
+
+      const lenX = Math.max(MIN_AXIS_LEN, maxX + 1);
+      const lenY = Math.max(MIN_AXIS_LEN, maxY + 1);
+      const lenZ = Math.max(MIN_AXIS_LEN, maxZ + 1);
+
+      // Update axis line endpoints
+      function updateLine(line, end) {
+        const pos = line.geometry.attributes.position;
+        pos.setXYZ(1, end.x, end.y, end.z);
+        pos.needsUpdate = true;
+      }
+      updateLine(axisLines.x, new THREE.Vector3(lenX, 0, 0));
+      updateLine(axisLines.y, new THREE.Vector3(0, lenY, 0));
+      updateLine(axisLines.z, new THREE.Vector3(0, 0, lenZ));
+
+      // Update label positions
+      axisLabelX.position.set(lenX + AXIS_LABEL_PAD, 0, 0);
+      axisLabelY.position.set(0, lenY + AXIS_LABEL_PAD, 0);
+      axisLabelZ.position.set(0, 0, lenZ + AXIS_LABEL_PAD);
+    }
+
+    // --- Cell-based block system ---
+    // A block is: { id, anchor: [x,y,z], cells: [[dx,dy,dz],...], color, mesh }
+    // The "cells" are offsets from anchor. The block occupies anchor + each offset.
+    // The initial 1x2x3 block has cells covering x=0, y=0..1, z=0..2
+
+    function makeInitialCells() {
+      // 1x2x3: width=1(x), height=2(y), depth=3(z)
+      const cells = [];
+      for (let x = 0; x < 1; x++)
+        for (let y = 0; y < 2; y++)
+          for (let z = 0; z < 3; z++)
+            cells.push([x, y, z]);
+      return cells;
+    }
+
+    // Get the absolute world cells for a block
+    function getWorldCells(block) {
+      return block.cells.map(([dx, dy, dz]) => [
+        block.anchor[0] + dx,
+        block.anchor[1] + dy,
+        block.anchor[2] + dz,
+      ]);
+    }
+
+    // Check if any world cells of a block overlap with any other block
+    function checkCollision(block, exclude = null) {
+      const worldCells = getWorldCells(block);
+      const cellSet = new Set();
+      for (const other of blocks) {
+        if (other === exclude || other === block) continue;
+        for (const [x, y, z] of getWorldCells(other)) {
+          cellSet.add(`${x},${y},${z}`);
+        }
+      }
+      for (const [x, y, z] of worldCells) {
+        if (cellSet.has(`${x},${y},${z}`)) return true;
+      }
+      return false;
+    }
+
+    // Build or rebuild the Three.js mesh for a block from its cells
+    function buildBlockMesh(block) {
+      // Remove old mesh
+      if (block.mesh) {
+        scene.remove(block.mesh);
+      }
+
+      const group = new THREE.Group();
+
+      // Create one box per cell
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+
+      for (const [dx, dy, dz] of block.cells) {
+        const material = new THREE.MeshStandardMaterial({
+          color: block.color,
+          roughness: 0.35,
+          metalness: 0.0,
+        });
+        const cube = new THREE.Mesh(geometry, material);
+        // Position each unit cube: cell center is at offset + 0.5
+        cube.position.set(dx + 0.5, dy + 0.5, dz + 0.5);
+        group.add(cube);
+      }
+
+      // Add a single outline around the whole block bounding box
+      const min = [Infinity, Infinity, Infinity];
+      const max = [-Infinity, -Infinity, -Infinity];
+      for (const [dx, dy, dz] of block.cells) {
+        min[0] = Math.min(min[0], dx);
+        min[1] = Math.min(min[1], dy);
+        min[2] = Math.min(min[2], dz);
+        max[0] = Math.max(max[0], dx + 1);
+        max[1] = Math.max(max[1], dy + 1);
+        max[2] = Math.max(max[2], dz + 1);
+      }
+      const bw = max[0] - min[0], bh = max[1] - min[1], bd = max[2] - min[2];
+      const boxGeo = new THREE.BoxGeometry(bw, bh, bd);
+      const edgeGeo = new THREE.EdgesGeometry(boxGeo);
+      const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 });
+      const outline = new THREE.LineSegments(edgeGeo, lineMat);
+      outline.position.set(
+        min[0] + bw / 2,
+        min[1] + bh / 2,
+        min[2] + bd / 2,
+      );
+      group.add(outline);
+
+      // Position group at anchor
+      group.position.set(block.anchor[0], block.anchor[1], block.anchor[2]);
+
+      block.mesh = group;
+      scene.add(group);
+    }
+
+    // Set emissive on all child meshes
+    function setBlockEmissive(block, hex) {
+      if (!block.mesh) return;
+      block.mesh.traverse((child) => {
+        if (child.isMesh && child.material && child.material.emissive) {
+          child.material.emissive.setHex(hex);
+        }
+      });
+    }
+
+    function getBlockColor() {
+      return COLORS[blockCounter % COLORS.length];
+    }
+
+    function createBlock() {
+      const block = {
+        id: blockCounter,
+        anchor: [0, 0, 0],
+        cells: makeInitialCells(),
+        color: getBlockColor(),
+        mesh: null,
+      };
+
+      // Find a free position along X axis
+      let placed = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        block.anchor = [attempt * 2, 0, 0];
+        if (!checkCollision(block)) {
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        block.anchor = [blockCounter * 4, 0, 0];
+      }
+
+      blockCounter++;
+      blocks.push(block);
+      buildBlockMesh(block);
+      selectBlock(block);
+      updateAxisExtents();
+      return block;
+    }
+
+    function selectBlock(block) {
+      // Deselect previous
+      if (selectedBlock) {
+        setBlockEmissive(selectedBlock, 0x000000);
+      }
+      selectedBlock = block;
+      if (block) {
+        setBlockEmissive(block, 0x222222);
+        const a = block.anchor;
+        document.getElementById('selected-info').textContent =
+          `Selected: Block #${block.id}  |  anchor(${a[0]}, ${a[1]}, ${a[2]})`;
+      } else {
+        document.getElementById('selected-info').textContent = 'Click a block to select it';
+      }
+    }
+
+    function deleteSelected() {
+      if (!selectedBlock) return;
+      scene.remove(selectedBlock.mesh);
+      const idx = blocks.indexOf(selectedBlock);
+      if (idx !== -1) blocks.splice(idx, 1);
+      selectedBlock = null;
+      document.getElementById('selected-info').textContent = 'Click a block to select it';
+      updateAxisExtents();
+    }
+
+    // Rotate cell offsets by 90 degrees around an axis, then normalize so min is (0,0,0)
+    function rotateCells(cells, axis) {
+      const rotated = cells.map(([x, y, z]) => {
+        switch (axis) {
+          case 'x': return [x, -z, y];   // 90 deg around X
+          case 'y': return [z, y, -x];   // 90 deg around Y
+          case 'z': return [-y, x, z];   // 90 deg around Z
+        }
+      });
+
+      // Normalize: shift so minimum offset is (0,0,0)
+      const minX = Math.min(...rotated.map(c => c[0]));
+      const minY = Math.min(...rotated.map(c => c[1]));
+      const minZ = Math.min(...rotated.map(c => c[2]));
+      return {
+        cells: rotated.map(([x, y, z]) => [x - minX, y - minY, z - minZ]),
+        shift: [minX, minY, minZ],
+      };
+    }
+
+    function rotateBlock(axis) {
+      if (!selectedBlock) return;
+
+      const { cells: newCells, shift } = rotateCells(selectedBlock.cells, axis);
+      const newAnchor = [
+        selectedBlock.anchor[0] + shift[0],
+        selectedBlock.anchor[1] + shift[1],
+        selectedBlock.anchor[2] + shift[2],
+      ];
+
+      // Temporarily apply to check collision
+      const oldCells = selectedBlock.cells;
+      const oldAnchor = selectedBlock.anchor;
+      selectedBlock.cells = newCells;
+      selectedBlock.anchor = newAnchor;
+
+      if (checkCollision(selectedBlock)) {
+        // Revert
+        selectedBlock.cells = oldCells;
+        selectedBlock.anchor = oldAnchor;
+        return;
+      }
+
+      // Rebuild mesh with new shape
+      buildBlockMesh(selectedBlock);
+      setBlockEmissive(selectedBlock, 0x222222);
+      updateSelectedInfo();
+      updateAxisExtents();
+    }
+
+    function updateSelectedInfo() {
+      if (!selectedBlock) return;
+      const a = selectedBlock.anchor;
+      document.getElementById('selected-info').textContent =
+        `Selected: Block #${selectedBlock.id}  |  anchor(${a[0]}, ${a[1]}, ${a[2]})`;
+    }
+
+    function updateCameraPosition() {
+      // Z-up spherical coordinates
+      cameraPhi = Math.max(0.05, Math.min(Math.PI - 0.05, cameraPhi));
+
+      camera.position.x = cameraTarget.x + cameraRadius * Math.sin(cameraPhi) * Math.cos(cameraTheta);
+      camera.position.y = cameraTarget.y + cameraRadius * Math.sin(cameraPhi) * Math.sin(cameraTheta);
+      camera.position.z = cameraTarget.z + cameraRadius * Math.cos(cameraPhi);
+      camera.lookAt(cameraTarget);
+    }
+
+    function rotateView(axis, direction) {
+      const step = Math.PI / 12;
+      switch (axis) {
+        case 'x': // vertical tilt (phi)
+          cameraPhi += step * direction;
+          break;
+        case 'y': // horizontal orbit (theta around Z)
+          cameraTheta += step * direction;
+          break;
+        case 'z': // camera roll
+          camera.rotateZ(step * direction);
+          return;
+      }
+      updateCameraPosition();
+    }
+
+    // --- Raycaster for selection ---
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    // --- Mouse drag state ---
+    let isDragging = false;
+    let dragButton = -1;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let dragMoved = false;
+    const DRAG_THRESHOLD = 4;
+
+    function onPointerDown(event) {
+      if (event.target.tagName === 'BUTTON') return;
+      if (event.target.closest('#toolbar')) return;
+
+      isDragging = true;
+      dragButton = event.button;
+      dragStartX = event.clientX;
+      dragStartY = event.clientY;
+      dragMoved = false;
+    }
+
+    function onPointerMove(event) {
+      if (!isDragging) return;
+
+      const dx = event.clientX - dragStartX;
+      const dy = event.clientY - dragStartY;
+
+      if (!dragMoved && Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+        dragMoved = true;
+      }
+      if (!dragMoved) return;
+
+      if (dragButton === 0) {
+        // Left drag: orbit around Z-up
+        cameraTheta -= dx * 0.005;
+        cameraPhi -= dy * 0.005;
+        updateCameraPosition();
+      } else if (dragButton === 1 || dragButton === 2) {
+        const panSpeed = 0.015;
+        const forward = new THREE.Vector3().subVectors(cameraTarget, camera.position).normalize();
+        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 0, 1)).normalize();
+        const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+        cameraTarget.add(right.multiplyScalar(-dx * panSpeed));
+        cameraTarget.add(up.multiplyScalar(dy * panSpeed));
+        updateCameraPosition();
+      }
+
+      dragStartX = event.clientX;
+      dragStartY = event.clientY;
+    }
+
+    function onPointerUp(event) {
+      if (!isDragging) return;
+      isDragging = false;
+
+      if (!dragMoved && dragButton === 0) {
+        pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+        pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(pointer, camera);
+
+        // Collect all child meshes from all blocks
+        const allMeshes = [];
+        const meshToBlock = new Map();
+        for (const block of blocks) {
+          block.mesh.traverse((child) => {
+            if (child.isMesh) {
+              allMeshes.push(child);
+              meshToBlock.set(child, block);
+            }
+          });
+        }
+
+        const intersects = raycaster.intersectObjects(allMeshes, false);
+        if (intersects.length > 0) {
+          const hitBlock = meshToBlock.get(intersects[0].object);
+          if (hitBlock) selectBlock(hitBlock);
+        } else {
+          selectBlock(null);
+        }
+      }
+
+      dragButton = -1;
+    }
+
+    // --- Event listeners ---
+    document.getElementById('btn-add').addEventListener('click', createBlock);
+    document.getElementById('btn-delete').addEventListener('click', deleteSelected);
+
+    document.getElementById('btn-rot-x').addEventListener('click', () => rotateBlock('x'));
+    document.getElementById('btn-rot-y').addEventListener('click', () => rotateBlock('y'));
+    document.getElementById('btn-rot-z').addEventListener('click', () => rotateBlock('z'));
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+
+    renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // --- Mouse wheel zoom ---
+    window.addEventListener('wheel', (e) => {
+      cameraRadius += e.deltaY * 0.01;
+      cameraRadius = Math.max(3, Math.min(50, cameraRadius));
+      updateCameraPosition();
+    });
+
+    // --- Arrow key movement (fully view-relative) ---
+    function moveBlock(direction) {
+      if (!selectedBlock) return;
+
+      // Compute view-relative right and up vectors in world space
+      const camRight = new THREE.Vector3();
+      const camUp = new THREE.Vector3();
+      camera.matrixWorld.extractBasis(camRight, camUp, new THREE.Vector3());
+      // camRight = camera's local X (screen right)
+      // camUp    = camera's local Y (screen up)
+
+      // Snap a 3D vector to the nearest world axis (X, Y, or Z)
+      function snapToAxis3D(v) {
+        const ax = Math.abs(v.x);
+        const ay = Math.abs(v.y);
+        const az = Math.abs(v.z);
+        if (ax >= ay && ax >= az) {
+          return [Math.sign(v.x) | 0, 0, 0];
+        } else if (ay >= ax && ay >= az) {
+          return [0, Math.sign(v.y) | 0, 0];
+        } else {
+          return [0, 0, Math.sign(v.z) | 0];
+        }
+      }
+
+      const snappedRight = snapToAxis3D(camRight);
+      const snappedUp = snapToAxis3D(camUp);
+
+      let delta = [0, 0, 0];
+      switch (direction) {
+        case 'ArrowRight': delta = snappedRight; break;
+        case 'ArrowLeft':  delta = snappedRight.map(v => -v); break;
+        case 'ArrowUp':    delta = snappedUp; break;
+        case 'ArrowDown':  delta = snappedUp.map(v => -v); break;
+      }
+
+      const oldAnchor = [...selectedBlock.anchor];
+      selectedBlock.anchor = [
+        selectedBlock.anchor[0] + delta[0],
+        selectedBlock.anchor[1] + delta[1],
+        selectedBlock.anchor[2] + delta[2],
+      ];
+
+      if (checkCollision(selectedBlock)) {
+        selectedBlock.anchor = oldAnchor;
+        return;
+      }
+
+      // Update mesh position
+      selectedBlock.mesh.position.set(
+        selectedBlock.anchor[0],
+        selectedBlock.anchor[1],
+        selectedBlock.anchor[2]
+      );
+      updateSelectedInfo();
+      updateAxisExtents();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        moveBlock(e.key);
+      }
+    });
+
+    // --- Render loop ---
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
