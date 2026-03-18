@@ -128,6 +128,54 @@
       border-radius: 12px;
       box-shadow: 0 2px 12px rgba(100, 60, 160, 0.1);
     }
+
+    #toast {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.95);
+      z-index: 100;
+      background: #fff;
+      border: 2px solid #e0a0a0;
+      border-radius: 14px;
+      padding: 18px 24px;
+      box-shadow: 0 8px 32px rgba(180, 60, 60, 0.25);
+      font-size: 13px;
+      font-weight: 700;
+      color: #8a3030;
+      max-width: 420px;
+      line-height: 1.5;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    #toast.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    #toast .toast-title {
+      font-size: 14px;
+      font-weight: 800;
+      margin-bottom: 6px;
+      color: #c55;
+    }
+    #toast .toast-dismiss {
+      display: inline-block;
+      margin-top: 10px;
+      background: #ffe0e0;
+      color: #a33;
+      border: none;
+      border-radius: 8px;
+      padding: 5px 14px;
+      font-family: 'Nunito', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    #toast .toast-dismiss:hover {
+      background: #ffd0d0;
+    }
   </style>
 </head>
 <body>
@@ -148,9 +196,15 @@
         <button id="btn-rot-z" style="color:#4a9ef5">Z 90&deg;</button>
       </div>
     </div>
+
+    <div class="btn-group">
+      <div class="btn-group-label">Share</div>
+      <button id="btn-copy-link">Copy Link</button>
+    </div>
   </div>
 
   <div id="selected-info">Click a block to select it</div>
+  <div id="toast"></div>
   <div id="info">Drag to orbit | Right-drag to pan | Scroll to zoom | Click to select | Arrow keys to move</div>
 
   <script type="importmap">
@@ -328,14 +382,14 @@
     // --- Cell-based block system ---
     // A block is: { id, anchor: [x,y,z], cells: [[dx,dy,dz],...], color, mesh }
     // The "cells" are offsets from anchor. The block occupies anchor + each offset.
-    // The initial 1x2x3 block has cells covering x=0, y=0..1, z=0..2
+    // All blocks are 3x2x1 in one of 6 orientations (r0-r5).
 
     function makeInitialCells() {
-      // 1x2x3: width=1(x), height=2(y), depth=3(z)
+      // 3x2x1: width=3(x), depth=2(y), height=1(z)
       const cells = [];
-      for (let x = 0; x < 1; x++)
+      for (let x = 0; x < 3; x++)
         for (let y = 0; y < 2; y++)
-          for (let z = 0; z < 3; z++)
+          for (let z = 0; z < 1; z++)
             cells.push([x, y, z]);
       return cells;
     }
@@ -460,6 +514,7 @@
       buildBlockMesh(block);
       selectBlock(block);
       updateAxisExtents();
+      updateHash();
       return block;
     }
 
@@ -487,6 +542,7 @@
       selectedBlock = null;
       document.getElementById('selected-info').textContent = 'Click a block to select it';
       updateAxisExtents();
+      updateHash();
     }
 
     // Rotate cell offsets by 90 degrees around an axis, then normalize so min is (0,0,0)
@@ -537,6 +593,7 @@
       setBlockEmissive(selectedBlock, 0x222222);
       updateSelectedInfo();
       updateAxisExtents();
+      updateHash();
     }
 
     function updateSelectedInfo() {
@@ -544,6 +601,169 @@
       const a = selectedBlock.anchor;
       document.getElementById('selected-info').textContent =
         `Selected: Block #${selectedBlock.id}  |  anchor(${a[0]}, ${a[1]}, ${a[2]})`;
+    }
+
+    // --- Toast notifications ---
+    let toastTimer = null;
+    function showToast(title, message, autoDismiss = 0) {
+      const el = document.getElementById('toast');
+      el.innerHTML =
+        `<div class="toast-title">${title}</div>` +
+        `<div>${message}</div>` +
+        `<button class="toast-dismiss" onclick="document.getElementById('toast').classList.remove('visible')">Dismiss</button>`;
+      el.classList.add('visible');
+      if (toastTimer) clearTimeout(toastTimer);
+      if (autoDismiss > 0) {
+        toastTimer = setTimeout(() => el.classList.remove('visible'), autoDismiss);
+      }
+    }
+
+    // --- URL hash serialization (human-readable block positions & orientations) ---
+    // Format: #x.y.z,x.y.zrN,x.y.zrN  (r0 is default and omitted)
+    //
+    // The 6 orientations of a 3x2x1 block (permutations of dims across axes):
+    //   r0 = 3x2x1  r1 = 3x1x2  r2 = 2x3x1
+    //   r3 = 2x1x3  r4 = 1x3x2  r5 = 1x2x3
+    const ORIENTATIONS = [
+      [3, 2, 1], // r0 (default)
+      [3, 1, 2], // r1
+      [2, 3, 1], // r2
+      [2, 1, 3], // r3
+      [1, 3, 2], // r4
+      [1, 2, 3], // r5
+    ];
+
+    function cellsForOrientation(index) {
+      const [sx, sy, sz] = ORIENTATIONS[index];
+      const cells = [];
+      for (let x = 0; x < sx; x++)
+        for (let y = 0; y < sy; y++)
+          for (let z = 0; z < sz; z++)
+            cells.push([x, y, z]);
+      return cells;
+    }
+
+    function orientationOf(cells) {
+      // Determine bounding box dimensions of the cells
+      let mx = 0, my = 0, mz = 0;
+      for (const [x, y, z] of cells) {
+        mx = Math.max(mx, x + 1);
+        my = Math.max(my, y + 1);
+        mz = Math.max(mz, z + 1);
+      }
+      for (let i = 0; i < ORIENTATIONS.length; i++) {
+        const [sx, sy, sz] = ORIENTATIONS[i];
+        if (sx === mx && sy === my && sz === mz) return i;
+      }
+      return 0; // fallback
+    }
+
+    function serializeBlocks() {
+      return blocks.map(b => {
+        const pos = b.anchor.join('.');
+        const r = orientationOf(b.cells);
+        return r === 0 ? pos : pos + 'r' + r;
+      }).join(',');
+    }
+
+    function deserializeBlocks(hash) {
+      if (!hash) return false;
+      const parts = hash.split(',').filter(Boolean);
+      if (parts.length === 0) return false;
+
+      // --- Pass 1: parse and validate all tokens before touching the scene ---
+      const errors = [];
+      const parsed = [];
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i].trim();
+        const rMatch = part.match(/^(-?\d+)\.(-?\d+)\.(-?\d+)(?:r(\d))?$/);
+        if (!rMatch) {
+          errors.push(`Block ${i + 1} "<b>${part}</b>": invalid format. Expected <b>x.y.z</b> or <b>x.y.zrN</b>`);
+          continue;
+        }
+        const r = rMatch[4] !== undefined ? +rMatch[4] : 0;
+        if (r < 0 || r > 5) {
+          errors.push(`Block ${i + 1} "<b>${part}</b>": rotation <b>r${r}</b> is invalid. Use r0 through r5`);
+          continue;
+        }
+        parsed.push({
+          index: i,
+          token: part,
+          anchor: [+rMatch[1], +rMatch[2], +rMatch[3]],
+          rotation: r,
+        });
+      }
+
+      // --- Pass 2: check for overlapping blocks ---
+      // Build a map of occupied cells -> which block index owns them
+      const occupied = new Map(); // "x,y,z" -> block index in parsed[]
+      const overlapPairs = new Set();
+
+      for (let i = 0; i < parsed.length; i++) {
+        const { anchor, rotation } = parsed[i];
+        const cells = cellsForOrientation(rotation);
+        for (const [dx, dy, dz] of cells) {
+          const key = `${anchor[0] + dx},${anchor[1] + dy},${anchor[2] + dz}`;
+          if (occupied.has(key)) {
+            const j = occupied.get(key);
+            // Store as sorted pair to avoid duplicates
+            const pairKey = j < i ? `${j},${i}` : `${i},${j}`;
+            overlapPairs.add(pairKey);
+          } else {
+            occupied.set(key, i);
+          }
+        }
+      }
+
+      for (const pair of overlapPairs) {
+        const [a, b] = pair.split(',').map(Number);
+        errors.push(
+          `Block ${a + 1} "<b>${parsed[a].token}</b>" overlaps with ` +
+          `Block ${b + 1} "<b>${parsed[b].token}</b>"`
+        );
+      }
+
+      if (errors.length > 0) {
+        showToast('Invalid configuration', errors.join('<br>'));
+        return false;
+      }
+
+      // --- All valid: apply to scene ---
+      for (const b of blocks) {
+        if (b.mesh) scene.remove(b.mesh);
+      }
+      blocks.length = 0;
+      selectedBlock = null;
+      blockCounter = 0;
+
+      for (const { anchor, rotation } of parsed) {
+        const block = {
+          id: blockCounter,
+          anchor,
+          cells: cellsForOrientation(rotation),
+          color: COLORS[blockCounter % COLORS.length],
+          mesh: null,
+        };
+        blockCounter++;
+        blocks.push(block);
+        buildBlockMesh(block);
+      }
+      updateAxisExtents();
+      if (blocks.length > 0) {
+        selectBlock(blocks[blocks.length - 1]);
+      } else {
+        document.getElementById('selected-info').textContent = 'Click a block to select it';
+      }
+      return true;
+    }
+
+    function updateHash() {
+      if (blocks.length === 0) {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      } else {
+        history.replaceState(null, '', '#' + serializeBlocks());
+      }
     }
 
     function updateCameraPosition() {
@@ -668,6 +888,28 @@
     document.getElementById('btn-rot-y').addEventListener('click', () => rotateBlock('y'));
     document.getElementById('btn-rot-z').addEventListener('click', () => rotateBlock('z'));
 
+    document.getElementById('btn-copy-link').addEventListener('click', () => {
+      const url = window.location.href;
+      navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('btn-copy-link');
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      }).catch(() => {
+        // Fallback: select from a temporary input
+        const input = document.createElement('input');
+        input.value = window.location.href;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        const btn = document.getElementById('btn-copy-link');
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      });
+    });
+
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
@@ -743,6 +985,7 @@
       );
       updateSelectedInfo();
       updateAxisExtents();
+      updateHash();
     }
 
     window.addEventListener('keydown', (e) => {
@@ -750,6 +993,26 @@
         e.preventDefault();
         moveBlock(e.key);
       }
+    });
+
+    // --- Load initial state from URL hash ---
+    const initialHash = window.location.hash.slice(1); // remove '#'
+    if (initialHash) {
+      deserializeBlocks(initialHash);
+    }
+
+    // React to manual hash edits in the address bar
+    let hashFromUs = false;
+    const origUpdateHash = updateHash;
+    updateHash = function() {
+      hashFromUs = true;
+      origUpdateHash();
+      hashFromUs = false;
+    };
+    window.addEventListener('hashchange', () => {
+      if (hashFromUs) return; // ignore hash changes we made ourselves
+      const hash = window.location.hash.slice(1);
+      deserializeBlocks(hash);
     });
 
     // --- Render loop ---
